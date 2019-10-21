@@ -1,0 +1,380 @@
+---
+title: "World Value Survey Analysis"
+author: "Kathryn Haglich"
+date: "10/17/2019"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+#R Markdown set up 
+knitr::opts_chunk$set(echo = TRUE)
+
+#my favorite libraries - if you get an error because you need to install these, that's your fault 
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(magrittr)
+library(esquisse)
+library(shiny)
+library(shinydashboard)
+library(ggmosaic)
+
+#also does the notin command that I like 
+`%notin%` <- Negate(`%in%`)
+```
+
+```{r reading data in and turning it into data frame, include=FALSE}
+US <- read_excel("US2011.xlsx")
+Russia <-read_excel("Russia2011.xlsx")
+Japan <- read_excel("Japan2010.xlsx")
+
+US <- as.data.frame(US)
+Russia <- as.data.frame(Russia)
+Japan <- as.data.frame(Japan)
+
+```
+
+```{r remove columns of each country all same general info, include=FALSE}
+#gets rid of weird repeat columns 
+US <- US[,-1*c(1:4, 334:338, 387, 389, 430 )]
+Russia <- Russia[,-1*c(1:4,334:338, 387, 389, 430 )]
+Japan <- Japan[,-1*c(1:4,334:338, 387, 389 )]
+
+#View(Russia[,4])
+
+#View(Russia[279,])
+#View(Russia[485,])
+#unique(Russia[,25]) "DE,SE: Inapplicable;RU: Inappropiate response;SG:Missing;HT: Dropped out survey"
+
+#unique(Russia[,125]) #"HT: Dropped out survey; RU: Inappropriate response SG: Refused"
+
+#HT: Missing; PS,SE: Inapplicable;RU: Inappropriate resp
+
+#str_replace_all(string, pattern, replacement) 
+
+#Russia %<>% rename() str_replace_all("Inappropriate", "No answer") 
+```
+
+```{r identifying which questions were Not asked in each country, include=FALSE}
+
+findNotAskedQuestions <- function(dataSet){
+  firstguy <- dataSet[1,] %>%as.character() %>% as.vector()
+  notAskedNums = c()
+  for(i in 1:length(firstguy)){
+   if(firstguy[i] == "Not asked"){notAskedNums = c(notAskedNums, i)}
+  }
+  return (colnames(dataSet[notAskedNums]))
+}
+
+notAskedUS <- findNotAskedQuestions(US)
+notAskedRussia <- findNotAskedQuestions(Russia)
+notAskedJapan <- findNotAskedQuestions(Japan)
+
+allNotAsked <- intersect(intersect(notAskedUS, notAskedRussia), notAskedJapan)
+
+```
+
+```{r identifying which questions are in venn diagram, include=FALSE}
+###first remove the not asked questions 
+
+#regets the numbers of the columns I want to toss 
+usTossCols <- -1*c(which(colnames(US) %in% notAskedUS))
+russiaTossCols <- -1*c(which(colnames(Russia) %in% notAskedRussia))
+japanTossCols <- -1*c(which(colnames(Japan) %in% notAskedJapan))
+#then tosses them DO NOT RUN THIS CODE MORE THAN ONCE OR YOU WILL LOOSE DATA 
+US <- US[,usTossCols]
+Russia <- Russia[,russiaTossCols]
+Japan <- Japan[,japanTossCols]
+
+### now finds the intersect of all three as well as just pairs of the countries 
+interAll <- intersect(intersect(colnames(US), colnames(Russia)), colnames(Japan))
+interUSRus <- intersect(colnames(US), colnames(Russia))
+interUSJap <- intersect(colnames(US), colnames(Japan))
+interRusJap <- intersect(colnames(Japan), colnames(Russia))
+
+### and now the unique ones 
+unionUS <- union(interUSRus, interUSJap) #union of all US shared ones
+USUnique <- setdiff(colnames(US),unionUS) #unique US ones
+
+unionRussia <- union(interUSRus, interRusJap) #union of all Russia shared ones 
+RussiaUnique <- setdiff(colnames(Russia), unionRussia) #unique Russia ones 
+
+unionJapan <- union(interUSJap, interRusJap) #union of all Japan shared ones 
+JapanUnique <- setdiff(colnames(Japan), unionJapan) #unique Japan ones 
+
+### and finally taking the union of all of them 
+unionAll <- union(union(colnames(US), colnames(Russia)), colnames(Japan))
+
+```
+
+```{r cleaning for specific data point, include=FALSE}
+
+#hasNoAnswer = c()
+#for(i in 1:length(US[,1])){
+#  if(sum(is.na(US[i,])) > 0){
+ #   hasNoAnswer = c(hasNoAnswer,i)
+#  }
+#}
+#hasNoAnswer
+
+#so, I can't out right make no answer an NA and then just delete it because if I do then all of the data points will disappear
+#therefore, Im going to have to do it when I call the graph on the specific variable 
+
+```
+
+```{r make all the factors because survey woohoo, include=FALSE}
+
+#handwave everything to be factors, will go back and clean individual columns in a bit
+US[,1:ncol(US)] <- lapply(US[,1:ncol(US)], as.factor)
+Russia[,1:ncol(Russia)] <- lapply(Russia[,1:ncol(Russia)], as.factor)
+Japan[,1:ncol(Japan)] <- lapply(Japan[,1:ncol(Japan)], as.factor)
+
+
+
+
+
+
+```
+
+```{r vectors for the options for questions part shiny app, include=FALSE}
+uniqueOptions <- c("United States", "Russia", "Japan")
+intersectionOptions <- c("All", "United States/Russia", "United States/Japan", "Russia/Japan")
+notAskedOptions <- c("All", "United States", "Russia", "Japan")
+
+allTheVectors <- c("Unique to US", "Unique to Russia", "Unique to Japan", 
+                   "Intersection of All Three", "Intersection Between US and Russia", 
+                   "Intersection Between US and Japan", "Intersection Between Russia and Japan",
+                   "Not Asked at All", "Not Asked in US", "Not Asked in Russia","Not Asked in Japan")
+```
+
+```{r, include = FALSE}
+#isolate the variables I want for each country 
+
+USsmall <- US %>% select(interAll[c(7,42,176)])
+RussiaSmall <- Russia %>% select(interAll[c(7,42,176)])
+JapanSmall <- Japan %>% select(interAll[c(7,42,176)])
+
+#now lets reorder the factors like I wanted to earlier 
+happy = c("Not at all happy", "Not very happy", "Rather happy", "Very happy")
+happy <- happy %>% factor(levels = happy, ordered = TRUE)
+
+worry = c("Not at all", "Not much", "Very much", "A great deal")
+worry <- worry %>% factor(levels = worry, ordered = TRUE)
+
+agree <- c("Strongly disagree", "Disagree", "Neither", "Agree", "Agree strongly")
+agree <- agree %>% factor(levels = agree, ordered = TRUE)
+
+
+
+cleanFacts <- function(data){
+#FIX HAPPY VARIABLES 
+happy_cols <- colnames(data)[c(1)]
+data <- data %>% mutate_at(vars(happy_cols),
+                           ~replace(.,. %notin% happy, NA))
+data %<>% mutate_at(happy_cols, funs(factor(.,levels = happy, ordered = TRUE)))
+
+#FIX AGREE VARIABLES
+agree_cols <- colnames(data)[c(2)]
+data <- data %>% mutate_at(vars(agree_cols),
+                           ~replace(.,. %notin% agree, NA))
+data %<>% mutate_at(agree_cols, funs(factor(.,levels = agree, ordered = TRUE)))
+
+#FIX THE WORRY VARIABLE
+worry_cols <- colnames(data)[c(3)]
+data <- data %>% mutate_at(vars(worry_cols),
+                           ~replace(.,. %notin% worry, NA))
+data %<>% mutate_at(worry_cols, funs(factor(.,levels = worry, ordered = TRUE)))
+
+  return(data)
+}
+
+USsmall %<>% cleanFacts()%>%na.omit()
+RussiaSmall %<>% cleanFacts()%>%na.omit()
+JapanSmall %<>% cleanFacts()%>%na.omit()
+
+View(RussiaSmall)
+
+```
+
+
+
+
+##What the World Values Survey Is
+
+  >-an international to study how people's values change over time and the resulting impact on political and social aspects of a country
+  
+  >-distributed in nearly 100 countries
+  
+  >-explore the participants' views on democracy, tolerance, gender and race equality, religion, the environment, politics, famility, the community, etc
+  
+  >-data that can be analyzed to understand how people's beliefs, motivations, and values evolve between countries and over time and providing key insights to a multitude of different questions
+
+##Goals for this Project
+  >-performed simple Exploratory Data Analysis on WVS data sets from the United States, Russia, and Japan
+  
+  >-compared responses for individual questions and proportion of responses for pairs of variables
+  
+  >-explored differences in the survey questions that were asked among the three countries
+
+##Cleaning 
+
+>-removing columns with repetative, no longer necessary information
+
+>-questions that were not asked in each country were identified, saved to vectors by name, and deleted from the main data frame
+
+>-find the union of all questions asked, intersections among the combinations of countries, and questions unique for each country
+
+>-each column of the data sets were set to be factors and reordered when necessary
+
+##Single Variable Graphs 
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(USsmall, aes(x=USsmall[,1]))+
+      geom_bar() +
+      labs(x = "Feeling of Happiness", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,1]))+
+      geom_bar() +
+      labs(x = "Feeling of Happiness", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,1]))+
+      geom_bar() +
+      labs(x = "Feeling of Happiness", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(USsmall, aes(x=USsmall[,2]))+
+      geom_bar() +
+      labs(x = "Make My Parents Proud", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,2]))+
+      geom_bar() +
+      labs(x = "Make My Parents Proud", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,2]))+
+      geom_bar() +
+      labs(x = "Make My Parents Proud", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(USsmall, aes(x=USsmall[,3]))+
+      geom_bar() +
+      labs(x = "Worry About Giving Children Good Education", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,3]))+
+      geom_bar() +
+      labs(x = "Worry About Giving Children Good Education", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Single Variable Graphs
+```{r, echo=FALSE, fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,3]))+
+      geom_bar() +
+      labs(x = "Worry About Giving Children Good Education", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+##Double Variable Graphs - Happiness and Proud Parents
+```{r , fig.width=7,fig.height=4.5, echo = FALSE, message = FALSE}
+#AGREE AND HAPINESS 
+ggplot(USsmall, aes(x=USsmall[,2], fill = USsmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Make My Parents Proud", y = "Proportion", title='US', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Double Variable Graphs - Happiness and Proud Parents
+```{r , fig.width=7,fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,2], fill = RussiaSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Make My Parents Proud", y = "Proportion", title='Russia', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Double Variable Graphs - Happiness and Proud Parents
+```{r , fig.width=7,fig.height=4.5, echo = FALSE, message = FALSE}
+#AGREE AND HAPINESS 
+ggplot(JapanSmall, aes(x=JapanSmall[,2], fill = JapanSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Make My Parents Proud", y = "Proportion", title='Japan', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+##Double Variable Graphs - Happiness and Worries
+```{r , fig.width=7,fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(USsmall, aes(x=USsmall[,3], fill = USsmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Worry About Giving Children Good Education", y = "Proportion", title="US", fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Double Variable Graphs - Happiness and Worries
+```{r , fig.width=7,fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,3], fill = RussiaSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Worry About Giving Children Good Education", y = "Proportion", title='Russia', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Double Variable Graphs - Happiness and Worries
+```{r , fig.width=7,fig.height=4.5, echo = FALSE, message = FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,3], fill = JapanSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Worry About Giving Children Good Education", y = "Proportion", title='Japan', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+##Question Sets 
+
+Not Asked Observations:
+  >- logically excluded such as a person’s confidence level on certain organizations that the three countries are not members since those do not pertain to those three countries
+
+  >- additional personality traits, election integrity and government corruption  inquiries
+
+Unique US: appropriate for the only North American country in the data set
+
+Unique Russia: two of three relate to the Commonwealth of Independent States (CIS); third was prostitution
+
+Unique Japan: additional questions specifically over the Aisan concerns; last was “It is important to this person to do something good for society”
+  
+##The End 
+
+**Questions?**
+
+
+
+

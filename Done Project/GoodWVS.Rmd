@@ -1,0 +1,593 @@
+---
+title: "World Values Survey Project"
+author: "Kathryn Haglich"
+date: "10/17/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+#R Markdown set up 
+knitr::opts_chunk$set(echo = TRUE)
+
+#my favorite libraries - if you get an error because you need to install these, that's your fault 
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(magrittr)
+library(esquisse)
+library(shiny)
+library(shinydashboard)
+library(ggmosaic)
+
+#also does the notin command that I like 
+`%notin%` <- Negate(`%in%`)
+```
+
+```{r reading data in and turning it into data frame, include=FALSE}
+US <- read_excel("US2011.xlsx")
+Russia <-read_excel("Russia2011.xlsx")
+Japan <- read_excel("Japan2010.xlsx")
+
+US <- as.data.frame(US)
+Russia <- as.data.frame(Russia)
+Japan <- as.data.frame(Japan)
+
+```
+
+```{r remove columns of each country all same general info, include=FALSE}
+#gets rid of weird repeat columns 
+US <- US[,-1*c(1:4, 334:338, 387, 389, 430 )]
+Russia <- Russia[,-1*c(1:4,334:338, 387, 389, 430 )]
+Japan <- Japan[,-1*c(1:4,334:338, 387, 389 )]
+```
+
+```{r identifying which questions were Not asked in each country, include=FALSE}
+
+findNotAskedQuestions <- function(dataSet){
+  firstguy <- dataSet[1,] %>%as.character() %>% as.vector()
+  notAskedNums = c()
+  for(i in 1:length(firstguy)){
+   if(firstguy[i] == "Not asked"){notAskedNums = c(notAskedNums, i)}
+  }
+  return (colnames(dataSet[notAskedNums]))
+}
+
+notAskedUS <- findNotAskedQuestions(US)
+notAskedRussia <- findNotAskedQuestions(Russia)
+notAskedJapan <- findNotAskedQuestions(Japan)
+
+allNotAsked <- intersect(intersect(notAskedUS, notAskedRussia), notAskedJapan)
+
+```
+
+```{r identifying which questions are in venn diagram, include=FALSE}
+###first remove the not asked questions 
+
+#regets the numbers of the columns I want to toss 
+usTossCols <- -1*c(which(colnames(US) %in% notAskedUS))
+russiaTossCols <- -1*c(which(colnames(Russia) %in% notAskedRussia))
+japanTossCols <- -1*c(which(colnames(Japan) %in% notAskedJapan))
+#then tosses them DO NOT RUN THIS CODE MORE THAN ONCE OR YOU WILL LOOSE DATA 
+US <- US[,usTossCols]
+Russia <- Russia[,russiaTossCols]
+Japan <- Japan[,japanTossCols]
+
+### now finds the intersect of all three as well as just pairs of the countries 
+interAll <- intersect(intersect(colnames(US), colnames(Russia)), colnames(Japan))
+interUSRus <- intersect(colnames(US), colnames(Russia))
+interUSJap <- intersect(colnames(US), colnames(Japan))
+interRusJap <- intersect(colnames(Japan), colnames(Russia))
+
+### and now the unique ones 
+unionUS <- union(interUSRus, interUSJap) #union of all US shared ones
+USUnique <- setdiff(colnames(US),unionUS) #unique US ones
+
+unionRussia <- union(interUSRus, interRusJap) #union of all Russia shared ones 
+RussiaUnique <- setdiff(colnames(Russia), unionRussia) #unique Russia ones 
+
+unionJapan <- union(interUSJap, interRusJap) #union of all Japan shared ones 
+JapanUnique <- setdiff(colnames(Japan), unionJapan) #unique Japan ones 
+
+### and finally taking the union of all of them 
+unionAll <- union(union(colnames(US), colnames(Russia)), colnames(Japan))
+
+```
+
+
+```{r make all the factors because survey woohoo, include=FALSE}
+
+#handwave everything to be factors, will go back and clean individual columns in a bit
+US[,1:ncol(US)] <- lapply(US[,1:ncol(US)], as.factor)
+Russia[,1:ncol(Russia)] <- lapply(Russia[,1:ncol(Russia)], as.factor)
+Japan[,1:ncol(Japan)] <- lapply(Japan[,1:ncol(Japan)], as.factor)
+
+
+
+#now filter for problematic Russian one  
+
+#newRussia <- Russia
+#newRussia[1:nrow(newRussia), 1:ncol(newRussia)] <- str_replace(Russia[1:nrow(newRussia), 1:ncol(newRussia)], "Inappropriate", "No answer")
+#View(newRussia)
+
+# newRussia <- Russia
+# for(i in 1:ncol(newRussia)){
+#   for(j in 1:nrow(newRussia)){
+#     if( grep("\\wInappropriate\\w", newRussia[i,j]) ){
+#       newRussia[i,j] = "No answer"
+#     }
+#   }
+# }
+  
+
+
+
+#factors that need to be in order
+
+# View(colnames(US))
+# 
+# 
+# importance = c("Not at all important", "Not very important", "Rather important", "Very important")
+# importanceCol = c(1:6)
+# 
+# happy = c("Not at all happy", "Not very happy", "Rather happy", "Very happy")
+# happyCol = c(7)
+# 
+# goodPoor = c("Poor", "Fair", "Good", "Very Good")
+# gooPoorCol = c(8)
+# 
+# mentioned = c("Not Mentioned", "Mentioned")
+# mentionedCol = c(9:19, 33:41)
+# 
+# satisfied = c("Completely dissatisfied","2", "3", "4", "5", "6", "7", "8", "9", "Completely satisfied")
+# satisfiedCol = c(20)
+# 
+# member = c("Not a member", "Inactive member","Active member")
+# memberCol = c(22:41)
+# 
+# agree <- c("Disagree Strongly", "Disagree", "Neither", "Agree", "Agree Strongly")
+# agreeCol = c(42:51)
+# 
+# freedomChoice = c("No choice at all","2", "3", "4", "5", "6", "7", "8", "9", "A great deal of choice")
+# freedomChoiceCol = c(52)
+# 
+# fair = c("People would try to take advantage of you","2", "3", "4", "5", "6", "7", "8", "9", "People would try to be fair")
+# fairCol = c(53)
+# 
+# yesNo = c("No", "Yes")
+# yesNoCol = c(63)
+# 
+# unique(US[,55]) 
+# children = c("No children", "1 child", "2 children", "3 children", "4 children", "5 children", "6 children", "7 children", "8 or more children")
+# childrenCol = c(55)
+
+
+
+```
+
+```{r vectors for the options for questions part shiny app, include=FALSE}
+uniqueOptions <- c("United States", "Russia", "Japan")
+intersectionOptions <- c("All", "United States/Russia", "United States/Japan", "Russia/Japan")
+notAskedOptions <- c("All", "United States", "Russia", "Japan")
+
+allTheVectors <- c("Unique to US", "Unique to Russia", "Unique to Japan", 
+                   "Intersection of All Three", "Intersection Between US and Russia", 
+                   "Intersection Between US and Japan", "Intersection Between Russia and Japan",
+                   "Not Asked at All", "Not Asked in US", "Not Asked in Russia","Not Asked in Japan")
+```
+
+```{r THE SHINY APP WOOHOO, include=FALSE}
+#icon = icon("")
+
+
+############## USER INTERFACE ##############
+ui2 <- dashboardPage(
+  dashboardHeader(title = "World Values Survey Analysis"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      radioButtons("option", "What Do You want to Explore?",
+               c(
+                 "Single Variable Comparisons" = "single",
+                 "Double Variable Comparisons" = "double",
+                 "Survey Says" = "quest")),
+      
+      selectInput("xVariable", "X Variable", interAll),
+      selectInput("yVariable", "Y Variable", interAll),#ENDS selectInput
+      selectInput("questVariable", "Question Sets", allTheVectors)
+      
+    )#ENDS sidebarMenu 
+  ),#ENDS dashboardSidebar
+  
+  
+  dashboardBody(
+     mainPanel(tableOutput("QuestionSet"),
+       fluidRow(splitLayout(style = "border: 1px solid silver:", cellWidths = c(300,300,300), 
+                             plotOutput("USgraph"),
+                            plotOutput("Russiagraph"),
+                             plotOutput("Japangraph")
+                             )#ENDS splitLayout
+                           )#ENDS fluidRow
+                )#ENDS mainPanel 
+
+  )#ENDS dashboardBody
+)#ENDS dashboardPage
+
+#View(US[,1])
+#typeof(US[,1])
+#is.factor(US[,1])
+
+############## SERVER ##############
+server2 <- function(input, output) {
+  
+#################### Sets up the server stuff for the question displays ####################
+  
+  USunq <- reactive({USUnique[c(1:length(USUnique))]})
+  Japanunq <- reactive({JapanUnique[c(1:length(JapanUnique))]})
+  Russiaunq <- reactive({RussiaUnique[c(1:length(RussiaUnique))]})
+  
+  intAll <- reactive({interAll[c(1:length(interAll))]})
+  intUSR <- reactive({interUSRus[c(1:length(interUSRus))]})
+  intUSJ <- reactive({interUSJap[c(1:length(interUSJap))]})
+  intRJ <- reactive({interUSJap[c(1:length(interUSJap))]})
+  
+  allNot <- reactive({allNotAsked[c(1:length(allNotAsked))]})
+  USNot <- reactive({notAskedUS[c(1:length(notAskedUS))]})
+  RNot <- reactive({notAskeRussiaS[c(1:length(notAskedRussia))]})
+  JNot <- reactive({notAskedJapan[c(1:length(notAskedJapan))]})
+  
+  chosenSet <- reactive({
+    if(input$option == "quest"){
+    
+      if(input$questVariable == "Unique to US"){return(USunq())}
+      if(input$questVariable == "Unique to Russia"){return(Russiaunq())}
+      if(input$questVariable == "Unique to Japan"){return(Japanunq())}
+    
+      if(input$questVariable == "Intersection of All Three"){return(intAll())}
+      if(input$questVariable == "Intersection Between US and Russia"){return(intUSR())}
+      if(input$questVariable == "Intersection Between US and Japan"){return(intUSJ())}
+      if(input$questVariable == "Intersection Between Russia and Japan"){return(intRJ())}
+    
+      if(input$questVariable == "Not Asked at All"){return(allNot())}
+     if(input$questVariable == "Not Asked in US"){return(USNot())}
+     if(input$questVariable == "Not Asked in Russia"){return(RNot())}
+     if(input$questVariable == "Not Asked in Japan"){return(JNot())}
+    }
+  })
+  
+  output$QuestionSet <- renderTable(chosenSet())
+
+  
+  #subset the data frame so that I can get rid of any No answers for the chosen variables only 
+  #subUS <-  reactive({US %>% select(input$xVariable,input$yVariable) %>% 
+    #filter(input$xVariable != "No answer", input$yVariable != "No answer")})
+    
+#################### Sets up the server stuff for the graphs displays ####################
+  
+#setting up what the graphs would be if the user chooses the single variable option   
+  graphUS1 <- reactive({
+    
+   # dat <- US %>% select(input$xVariable)
+   # dat$input$xVariable <- as.factor(dat$input$xVariable)
+   # dat <- filter(input$xVariable != "No answer")
+    
+    ggplot(US, aes(x=US[,c(input$xVariable)]))+
+      geom_bar() +
+      labs(x = "Chosen Variable", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+  graphRussia1 <- reactive({
+    ggplot(data = Russia, aes(x=Russia[,c(input$xVariable)]))+
+      geom_bar() +
+      labs(x = "Chosen Variable", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    })
+  graphJapan1 <- reactive({ggplot(data = Japan, aes(x=Japan[,c(input$xVariable)]))+
+      geom_bar() +
+      labs(x = "Chosen Variable", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    })
+  
+
+  #setting up what the graphs would be if the user chooses the double variable option 
+   graphUS2 <- reactive({
+      ggplot(US, aes(x=US[,c(input$xVariable)], fill = US[,c(input$yVariable)]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Chosen X Variable", y = "Frequency", title='US', fill = "Chosen Y Variable")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+   graphRussia2 <- reactive({
+   ggplot(Russia, aes(x=Russia[,c(input$xVariable)], fill = Russia[,c(input$yVariable)]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Chosen X Variable", y = "Frequency", title='Russia', fill = "Chosen Y Variable")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")
+
+  })
+   
+   graphJapan2 <- reactive({
+   ggplot(Japan, aes(x=Japan[,c(input$xVariable)], fill = Japan[,c(input$yVariable)]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Chosen X Variable", y = "Frequency", title='Japan', fill = "Chosen Y Variable")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+  
+  chosenUSGraph <- reactive({
+    if(input$option == "single"){return(graphUS1())}
+     if(input$option == "double"){return(graphUS2())}
+  })
+  
+  chosenRussiaGraph <- reactive({
+    #if(input$option == "quest"){return("a")}
+    if(input$option == "single"){return(graphRussia1())}
+     if(input$option == "double"){return(graphRussia2())}
+    # if(input$option == "happy"){return(graphRussiaf())}
+  })
+  
+  chosenJapanGraph <- reactive({
+    #if(input$option == "quest"){return("a")}
+    if(input$option == "single"){return(graphJapan1())}
+     if(input$option == "double"){return(graphJapan2())}
+    # if(input$option == "happy"){return(graphJapanf())}
+  })
+  
+
+### Prints out the graphs 
+  output$USgraph <- renderPlot({chosenUSGraph()})
+  output$Russiagraph <- renderPlot({chosenRussiaGraph()})
+  output$Japangraph <- renderPlot({chosenJapanGraph()})
+  
+  
+  
+ # allTheVectors <- c("unionAll", "USUnique", "RussiaUnique", "JapanUnique", 
+                   #"interAll", "interUSRus", "interUSJap", "interRusJap",
+                  # "allNotAsked", "notAskedUS", "notAskedRussia"," notAskedJapan")
+  
+} #ENDS function()
+
+
+shinyApp(ui2, server2)
+
+
+```
+
+
+
+
+
+#Report
+
+## Introduction 
+The World Values Survey (WVS) is an international to study how people's values change over time and the resulting impact on political and social aspects of a country. Originally starting in 1981, the common questionaire has been distributed to nearly 100 countries to date from the poorest countries to the weathiest ones. This provides a wealth of data that can be analyzed to understand how people's beliefs, motivations, and values evolve between countries and over time and providing key insights to a multitude of different questions. For this project, I performed simple Exploratory Data Analysis on WVS data sets from the United States, Russia, and Japan. After cleaning, I compared responses for individual questions and proportion of responses for pairs of variables and explored differences in the survey questions that were asked among the three countries.   
+
+## Background 
+
+The WVS is a global survey project designed to understand people's societal values spanning over 100 countries over 7 Waves of surveys - the data for the most recent one set to be release  in 2020. The standardized questions are designed to explore the participants' views on democracy, tolerance, gender and race equality, religion, the environment, politics, famility, the community, etc. Once collected the data can be analyzed by experts from a wide variety of field to understand the socioeconomic, political, and cultural trends and impacts across te globe. 
+
+To develop the questionaire, social scientists from the international community contribute their question suggests to create an English master version. he surveys were translated into various languages and then translated back to English to ensure accurate translations. After each wave, questions are updated with some being added and others being removed in order to allow the survey to evolve with the values and concerns of humanity. The topics of the Wave 7 survey is as follows: 
+
+- social values, attitudes & stereotypes (45 items)
+
+- societal well-being (11 items)
+- social capital, trust and organizational membership (49 items)
+
+- economic values (6 items)
+
+- corruption (9 items)
+
+- migration (10 items)
+
+- post-materialist index (6 items)
+
+- science & technology (6 items)
+
+- religious values (12 items)
+
+- security (21 items)
+
+- ethical values & norms (23 items)
+
+- political interest and political participation (36 items)
+
+- political culture and political regimes (25 items)
+
+- demography (31 items)
+
+To prevent any sampling bias and ensure accurate representation, 1200 interviews must be completed to meet the minimum sample size requirement. The WVS dictates that the sample must be representative of all of the country's residents 18 years or old, but allows the country to determine the specific method of sampling often deciding on amix of stratified and random sampling. The surveys are completed either in person (primary option) or over telephone (if necessary to reach isolated areas). 
+
+## Data Selection and Cleaning 
+The United States was chosen because that was the first data set that was provided at the start of the project. Additionally, since I am an American, I wanted to explore the values of my own country to see how closely they lined up with my perspective of them. Russia was chosen because of personal interest: I had traveled to the country and have grown fond of exploring more about the Russian culture. I also wanted to explore the differences, and similarities, between Russia and the United States. Japan was chosen last to add a starkly differing culture to the mix and to learn more about the values of the country that produces the animes my friends love. The data from all three countries were collected during Wave 6 (2010-2012) to provide a snapshot of the people's values at a certain point in time, in a way controlling for world events that may influence particular values. All data used for this project can be found at the WVS webite (http://www.worldvaluessurvey.org/WVSDocumentationWV6.jsp). 
+
+### Cleaning 
+
+Once the data was inputted into R and converted to a data frame, the cleaning process began by removing columns with repetative, no longer necessary information (Country Code, etc.). Next, questions that were not asked in each country were identified, saved to vectors by name, and deleted from the main data frame. Using the now smaller data set basic set theory was applied to find the union of all questions asked, intersections among the combinations of countries, and questions unique for each country. Since the WVS is dominated by categorical variables, each column of the data sets were set to be factors and reordered when necessary. The last step was intending to do extra cleaning in the Russian data set. Some of the responses included  "DE,SE: Inapplicable;RU: Inappropiate response;SG:Missing;HT: Dropped out survey" and slight variations thereof. These values were supposed to be replaced with "No answer". Due to a lot of unforseen technical difficulties, this step was not completed leaving the data much messier than intended. However, this project mainly focuses on initial EDA, and thus in future work, this cleaning step will be completed. 
+
+## Exploration 
+
+Since this data set is so large, the exploration done in this report will focus on the variables of "Feeling of Happiness", "Worries: Not being able to give one's children a good education", and "One of my main goals is to make my parents proud" and subsequence comparisons among the three countries. For relationships between different variables, please utlize the corresponding Shiny app for this project. 
+
+```{r, include = FALSE}
+#isolate the variables I want for each country 
+
+USsmall <- US %>% select(interAll[c(7,42,176)])
+RussiaSmall <- Russia %>% select(interAll[c(7,42,176)])
+JapanSmall <- Japan %>% select(interAll[c(7,42,176)])
+
+#now lets reorder the factors like I wanted to earlier 
+happy = c("Not at all happy", "Not very happy", "Rather happy", "Very happy")
+happy <- happy %>% factor(levels = happy, ordered = TRUE)
+
+worry = c("Not at all", "Not much", "Very much", "A great deal")
+worry <- worry %>% factor(levels = worry, ordered = TRUE)
+
+agree <- c("Strongly disagree", "Disagree", "Neither", "Agree", "Agree strongly")
+agree <- agree %>% factor(levels = agree, ordered = TRUE)
+
+
+
+cleanFacts <- function(data){
+#FIX HAPPY VARIABLES 
+happy_cols <- colnames(data)[c(1)]
+data <- data %>% mutate_at(vars(happy_cols),
+                           ~replace(.,. %notin% happy, NA))
+data %<>% mutate_at(happy_cols, funs(factor(.,levels = happy, ordered = TRUE)))
+
+#FIX AGREE VARIABLES
+agree_cols <- colnames(data)[c(2)]
+data <- data %>% mutate_at(vars(agree_cols),
+                           ~replace(.,. %notin% agree, NA))
+data %<>% mutate_at(agree_cols, funs(factor(.,levels = agree, ordered = TRUE)))
+
+#FIX THE WORRY VARIABLE
+worry_cols <- colnames(data)[c(3)]
+data <- data %>% mutate_at(vars(worry_cols),
+                           ~replace(.,. %notin% worry, NA))
+data %<>% mutate_at(worry_cols, funs(factor(.,levels = worry, ordered = TRUE)))
+
+  return(data)
+}
+
+USsmall %<>% cleanFacts()%>%na.omit()
+RussiaSmall %<>% cleanFacts()%>%na.omit()
+JapanSmall %<>% cleanFacts()%>%na.omit()
+
+View(RussiaSmall)
+
+```
+
+### Single Variables
+
+```{r, echo=FALSE}
+ggplot(USsmall, aes(x=USsmall[,1]))+
+      geom_bar() +
+      labs(x = "Feeling of Happiness", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,1]))+
+      geom_bar() +
+      labs(x = "Feeling of Happiness", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,1]))+
+      geom_bar() +
+      labs(x = "Feeling of Happiness", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(USsmall, aes(x=USsmall[,2]))+
+      geom_bar() +
+      labs(x = "Make My Parents Proud", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r, echo=FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,2]))+
+      geom_bar() +
+      labs(x = "Make My Parents Proud", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,2]))+
+      geom_bar() +
+      labs(x = "Make My Parents Proud", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(USsmall, aes(x=USsmall[,3]))+
+      geom_bar() +
+      labs(x = "Worry About Giving Children Good Education", y = "Frequency", title='US')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(RussiaSmall, aes(x=RussiaSmall[,3]))+
+      geom_bar() +
+      labs(x = "Worry About Giving Children Good Education", y = "Frequency", title='Russia')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, echo=FALSE}
+ggplot(JapanSmall, aes(x=JapanSmall[,3]))+
+      geom_bar() +
+      labs(x = "Worry About Giving Children Good Education", y = "Frequency", title='Japan')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Overall, the plots regarding the happiness follow the same relative shape for all three countries with the concentration of answers centered around the "rather happy" response. And it can be noticed that Russia has much lower responses for "very happy" than the other two countries. (One possibly reason as for why this might be is the significant lack of sunshine in the winter months, but further research is needed for evidence.) These plots suggest that the general distribution of the happiness answers are universal, centered at an average happy level, but the slight differences imply that it is not completely independent of country. 
+
+Similarly, the plots regarding the "parents proud variable" again follow the same relative shape for all three countries with the concentration of answers centered around the "agree" response. This time Japan is the one with a significant decrease in the number of "strongly agree". Further research and data analysis are needed to exxplore exactly why this is, but it may be due to differences in cultural expecations of the parental figures. 
+
+Last, there are significant differences in the distribution of responses when pressed on worries about not being able to give one's children a good education. First, participants from the United States are most confident that the will be able to give their children a good education. The Russian distribution is more evenly distributed with a gentle uptick at the end, allowing the "worry a great deal" to become the most frequent choice. Finally Japan has an almost positive linear relationship between the variable and the frequency. The reasons for these differences are numerous and further research is needed. Some ideas may be that American schools are better than those in Japan and Russia, government student loans are more available to American students than in other countries providing relief to low income families, or Americans are more laid-back when it comes to their children's education. 
+
+
+
+### Double Variables
+
+```{r ggplot time dou vars, echo = FALSE}
+#AGREE AND HAPINESS 
+ggplot(USsmall, aes(x=USsmall[,2], fill = USsmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Make My Parents Proud", y = "Proportion", title='US', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(RussiaSmall, aes(x=RussiaSmall[,2], fill = RussiaSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Make My Parents Proud", y = "Proportion", title='Russia', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(JapanSmall, aes(x=JapanSmall[,2], fill = JapanSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Make My Parents Proud", y = "Proportion", title='Japan', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+#WORRY AND HAPINESS
+
+ggplot(USsmall, aes(x=USsmall[,3], fill = USsmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Worry About Giving Children Good Education", y = "Proportion", title='US', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(RussiaSmall, aes(x=RussiaSmall[,3], fill = RussiaSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Worry About Giving Children Good Education", y = "Proportion", title='Russia', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(JapanSmall, aes(x=JapanSmall[,3], fill = JapanSmall[,1]) ) +
+      geom_bar(position = "fill") +
+      scale_fill_viridis_d(option = "viridis") +
+       labs(x = "Worry About Giving Children Good Education", y = "Proportion", title='Japan', fill = "Feeling of Happiness")+
+      theme_minimal()+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+For the plots comparing happiness and parent's pride, there is a very slight increase in the proportion of those who are "very happy" when concern about one's parents' pride goes up for US and Russua. In Japan, this distribution shows little relationship. When considering just general happiness, there is no significant difference when increasing concern about parental pride. The WVS survey consists of participants 18+ years old, and they may not be as concerned with pleasing their parents as they once did as children. 
+
+For the plotes comparing happiness and worrying about children's education, there is a lack of an overall trend for the three countries. The only significant point is that Russia has an overall fewer proportion of "very happy" responders, as we addressed in the previous section.  
+
+### Question Sets 
+
+The questions that were not asked in all of the countries include an interesting mix of topics. There are some questions that are logically excluded such as a person’s confidence level on certain organizations that the three countries are not members since those do not pertain to those three countries. The more intriguing ones are those that seem to be more general in their scope such as additional personality traits, election integrity and government corruption  inquiries. One reason for the personality questions to be excluded is that the current ones already account for the attribute being measured and thus unnecessary to ask a second time. It can also be argued that the election and corruption inquiries are more focused towards less developed countries where the governments and economies tend to me more unstable. Thus, it was not deemed necessary to ask these questions to the industrialized nations of the United States, Russia, and Japan. However, governments can be corrupt and elections can be unfair just as easily as struggling democracies; thus legitimizing a concern that this data set is missing potentially missing key information and trends by not asking these questions in the three studied countries
+
+The unique values for the United States are rather straightforward in that they are questions that are appropriate for the only North American country in the data set. In regards to Russia’s threre unique variables, two of them relate to the Commonwealth of Independent States (CIS) - an organization of ten former members Soviet Union. The last asks about the justifiability of prostitution. This is surprising to see as a unique question for Russia since prosittution happens everywhere in the world. Similar to the US, Japan has additional questions specifically over the Aisan concerns However, Japan has the additional personality question “It is important to this person to do something good for society”. This one is most surprising since the desire to help others and better the community should be a goal everyone should have regardless of nation of origin. By excluding this question for other countries, the survey is failing to fully understand the nature of people’s values on compassion and community support. 
+
+
+
+
+
+
+
